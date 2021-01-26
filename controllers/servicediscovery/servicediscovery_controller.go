@@ -351,7 +351,15 @@ func newLighthouseCoreDNSService(cr *submarinerv1alpha1.ServiceDiscovery) *corev
 func updateDNSConfigMap(client controllerClient.Client, k8sclientSet clientset.Interface, cr *submarinerv1alpha1.ServiceDiscovery,
 	reqLogger logr.Logger) error {
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		configMap, err := k8sclientSet.CoreV1().ConfigMaps(coreDNSNamespace).Get(coreDNSName, metav1.GetOptions{})
+		configMapElementName := ""
+		configMap, err := k8sclientSet.CoreV1().ConfigMaps(coreDNSNamespace).Get(coreDNSName+"-custom", metav1.GetOptions{})
+		if err != nil {
+			configMap, err := k8sclientSet.CoreV1().ConfigMaps(coreDNSNamespace).Get(coreDNSName, metav1.GetOptions{})
+			configMapElementName := "Corefile"
+		} else {  //for AKS compatibility
+			coreDNSName := coreDNSName+"-custom" 
+			configMapElementName := "lighthouse.server"
+		}
 		if err != nil {
 			return err
 		}
@@ -363,7 +371,7 @@ func updateDNSConfigMap(client controllerClient.Client, k8sclientSet clientset.I
 			return goerrors.New("lighthouseDnsService ClusterIp should be available")
 		}
 
-		coreFile := configMap.Data["Corefile"]
+		coreFile := configMap.Data[configMapElementName]
 		newCoreStr := ""
 		if strings.Contains(coreFile, "lighthouse-start") {
 			// Assume this means we've already set the ConfigMap up, first remove existing lighthouse config
@@ -393,7 +401,7 @@ func updateDNSConfigMap(client controllerClient.Client, k8sclientSet clientset.I
 		}
 		coreFile = expectedCorefile + "#lighthouse-end\n" + coreFile
 		log.Info("Updated coredns ConfigMap " + coreFile)
-		configMap.Data["Corefile"] = coreFile
+		configMap.Data[configMapElementName] = coreFile
 		// Potentially retried
 		_, err = k8sclientSet.CoreV1().ConfigMaps(coreDNSNamespace).Update(configMap)
 		return err
